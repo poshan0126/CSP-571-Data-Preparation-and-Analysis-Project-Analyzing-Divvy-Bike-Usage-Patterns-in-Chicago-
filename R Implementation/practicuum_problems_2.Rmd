@@ -1,0 +1,644 @@
+---
+title: "CSP571 Data Preparation and Analysis Assignment 2"
+author: "Poshan Pandey"
+date: "06/14/2024"
+output:
+  word_document: default
+  df_print: paged
+  html_document: null
+  pdf_document: default
+---
+
+## 2 Practicum Problems
+
+### Chapter 4
+
+#### Problem 14
+
+##### a
+
+```{r}
+# Load the dataset
+data(Auto, package="ISLR")
+
+# Create mpg01
+mpg01 <- ifelse(Auto$mpg > median(Auto$mpg), 1, 0)
+
+# Add mpg01 to the Auto data frame
+Auto <- data.frame(Auto, mpg01)
+```
+
+##### b
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(gridExtra)
+
+# Create individual boxplots
+p1 <- ggplot(Auto, aes(x=factor(cylinders), y=mpg01)) + geom_boxplot() + labs(title="MPG01 vs Cylinders", x="Cylinders", y="MPG01")
+p2 <- ggplot(Auto, aes(x=factor(displacement), y=mpg01)) + geom_boxplot() + labs(title="MPG01 vs Displacement", x="Displacement", y="MPG01")
+p3 <- ggplot(Auto, aes(x=factor(horsepower), y=mpg01)) + geom_boxplot() + labs(title="MPG01 vs Horsepower", x="Horsepower", y="MPG01")
+p4 <- ggplot(Auto, aes(x=factor(weight), y=mpg01)) + geom_boxplot() + labs(title="MPG01 vs Weight", x="Weight", y="MPG01")
+p5 <- ggplot(Auto, aes(x=factor(acceleration), y=mpg01)) + geom_boxplot() + labs(title="MPG01 vs Acceleration", x="Acceleration", y="MPG01")
+p6 <- ggplot(Auto, aes(x=factor(year), y=mpg01)) + geom_boxplot() + labs(title="MPG01 vs Year", x="Year", y="MPG01")
+p7 <- ggplot(Auto, aes(x=factor(origin), y=mpg01)) + geom_boxplot() + labs(title="MPG01 vs Origin", x="Origin", y="MPG01")
+
+# Arrange the boxplots in a grid
+grid.arrange(p1, p2, p3, p4, p5, p6, p7, ncol=2)
+
+```
+
+##### c
+
+```{r}
+# Set seed for reproducibility
+set.seed(123)
+
+# Split data into training and test sets
+train_indices <- sample(1:nrow(Auto), size = 0.7 * nrow(Auto))
+train_set <- Auto[train_indices, ]
+test_set <- Auto[-train_indices, ]
+```
+
+##### d
+
+```{r}
+# Load necessary library
+library(MASS)
+
+
+# Identify most associated features using t-test
+t_test_results <- sort(sapply(1:7, function(i) {
+  setNames(abs(t.test(Auto[, i] ~ Auto$mpg01)$statistic), colnames(Auto)[i])
+}))
+print(t_test_results)
+
+# Features most associated with mpg01
+# In this example, the top features are identified as:
+# cylinders, weight, displacement
+most_associated_features <- names(t_test_results)[order(t_test_results, decreasing = TRUE)[1:3]]
+print(most_associated_features)
+
+# Perform LDA on the training data
+lda_fit <- lda(mpg01 ~ cylinders + weight + displacement, data = train_set)
+
+# Predict on the test set
+lda_pred <- predict(lda_fit, test_set)$class
+
+# Calculate test error
+lda_test_error <- mean(lda_pred != test_set$mpg01)
+lda_test_error
+```
+
+##### e
+
+```{r}
+# Perform QDA
+qda_model <- qda(mpg01 ~ cylinders + displacement + horsepower + weight + acceleration + year + origin, data=train_set)
+qda_pred <- predict(qda_model, test_set)$class
+
+# Calculate test error
+qda_error <- mean(qda_pred != test_set$mpg01)
+qda_error
+
+```
+
+##### f
+
+```{r}
+# Perform logistic regression
+logistic_model <- glm(mpg01 ~ cylinders + displacement + horsepower + weight + acceleration + year + origin, data=train_set, family=binomial)
+logistic_prob <- predict(logistic_model, test_set, type="response")
+logistic_pred <- ifelse(logistic_prob > 0.5, 1, 0)
+
+# Calculate test error
+logistic_error <- mean(logistic_pred != test_set$mpg01)
+logistic_error
+
+```
+
+##### g
+
+```{r}
+# Load necessary library
+library(e1071)
+
+# Perform naive Bayes
+nb_model <- naiveBayes(mpg01 ~ cylinders + displacement + horsepower + weight + acceleration + year + origin, data=train_set)
+nb_pred <- predict(nb_model, test_set)
+
+# Calculate test error
+nb_error <- mean(nb_pred != test_set$mpg01)
+nb_error
+
+```
+
+##### h
+
+```{r}
+library(class)
+# Prepare data for KNN
+train_X <- train_set[, c("cylinders", "weight", "displacement")]
+train_y <- train_set$mpg01
+test_X <- test_set[, c("cylinders", "weight", "displacement")]
+
+# Perform KNN with different values of K
+k_values <- 1:50
+knn_errors <- sapply(k_values, function(k) {
+  knn_pred <- knn(train_X, test_X, train_y, k = k)
+  mean(knn_pred != test_set$mpg01)
+})
+
+# Assign names to the errors for plotting
+names(knn_errors) <- k_values
+
+# Plot the errors for different K values
+plot(k_values, knn_errors, type = "o", xlab = "Number of Neighbors K", ylab = "Test Error Rate", main = "KNN Test Error Rates for Different K")
+
+# Find the best K
+best_k <- k_values[which.min(knn_errors)]
+best_k
+best_k
+```
+
+11
+
+#### Problem 16
+
+##### Load and Prepare Data:
+
+```{r}
+# Load the Boston dataset
+data(Boston, package = "MASS")
+
+# Create a binary response variable based on the median crime rate
+crime_median <- median(Boston$crim)
+Boston$crime01 <- ifelse(Boston$crim > crime_median, 1, 0)
+
+# Split the data into a training set and a test set
+set.seed(123)  # For reproducibility
+train_indices <- sample(1:nrow(Boston), size = 0.7 * nrow(Boston))
+train_set <- Boston[train_indices, ]
+test_set <- Boston[-train_indices, ]
+
+```
+
+##### Logistic Regression:
+
+```{r}
+library(pROC)
+# Perform logistic regression
+logistic_model <- glm(crime01 ~ . - crim - crime01, data = train_set, family = binomial)
+logistic_prob <- predict(logistic_model, test_set, type = "response")
+logistic_pred <- ifelse(logistic_prob > 0.5, 1, 0)
+
+# Calculate test error
+logistic_error <- mean(logistic_pred != test_set$crime01)
+logistic_error
+
+# ROC curve
+logistic_roc <- roc(test_set$crime01, logistic_prob)
+plot(logistic_roc, main = "ROC Curves for Different Models", col = "blue")
+
+```
+
+```{r}
+# Calculate test error
+logistic_error <- mean(logistic_pred != test_set$crime01)
+logistic_error
+```
+
+##### Linear Discriminant Analysis (LDA):
+
+```{r}
+# Perform LDA
+lda_model <- lda(crime01 ~ . - crim - crime01, data = train_set)
+lda_pred <- predict(lda_model, test_set)$class
+lda_prob <- predict(lda_model, test_set)$posterior[,2]
+
+# Calculate test error
+lda_error <- mean(lda_pred != test_set$crime01)
+print(lda_error)
+
+# ROC curve
+lda_roc <- roc(test_set$crime01, lda_prob)
+
+# Ensure to call plot first
+plot(lda_roc, main = "ROC Curves for Different Models", col = "red", lwd = 2)
+
+```
+
+```{r}
+lda_error
+```
+
+##### Naive Bayes:
+
+```{r}
+# Perform naive Bayes
+nb_model <- naiveBayes(crime01 ~ . - crim - crime01, data = train_set)
+nb_pred <- predict(nb_model, test_set)
+nb_prob <- predict(nb_model, test_set, type = "raw")[,2]
+
+# Calculate test error
+nb_error <- mean(nb_pred != test_set$crime01)
+print(nb_error)
+
+
+```
+
+```{r}
+print(nb_error)
+```
+
+##### K-Nearest Neighbors (KNN):
+
+```{r}
+# Prepare data for KNN
+train_X <- train_set[, !names(train_set) %in% c("crim", "crime01")]
+train_y <- train_set$crime01
+test_X <- test_set[, !names(test_set) %in% c("crim", "crime01")]
+
+# Perform KNN with k = 5
+knn_pred <- knn(train_X, test_X, train_y, k = 5)
+
+# Calculate test error
+knn_error <- mean(knn_pred != test_set$crime01)
+print(knn_error)
+
+
+```
+
+### Chapter 5
+
+#### Problem 5
+
+##### a
+
+```{r}
+# Load necessary libraries
+library(ISLR)
+library(MASS)
+
+# Load the Default dataset
+data(Default)
+# Fit the logistic regression model
+set.seed(1)  # Setting random seed
+logistic_model <- glm(default ~ income + balance, data = Default, family = binomial)
+summary(logistic_model)
+
+```
+
+##### b
+
+```{r}
+# Function to estimate test error using the validation set approach
+estimate_test_error <- function(data, seed) {
+  set.seed(seed)
+  
+  # Split data into training and validation sets
+  train_indices <- sample(seq_len(nrow(data)), size = 0.5 * nrow(data))
+  train_set <- data[train_indices, ]
+  validation_set <- data[-train_indices, ]
+  
+  # Fit logistic regression model on training data
+  logistic_model <- glm(default ~ income + balance, data = train_set, family = binomial)
+  
+  # Predict on validation data
+  validation_probs <- predict(logistic_model, validation_set, type = "response")
+  validation_preds <- ifelse(validation_probs > 0.5, "Yes", "No")
+  
+  # Compute validation error
+  validation_error <- mean(validation_preds != validation_set$default)
+  
+  return(validation_error)
+}
+
+# Estimate test error using different seeds
+set.seed(1)  # Setting random seed
+error1 <- estimate_test_error(Default, seed = 1)
+error2 <- estimate_test_error(Default, seed = 2)
+error3 <- estimate_test_error(Default, seed = 3)
+
+# Print the validation errors
+print(c(error1, error2, error3))
+
+```
+
+##### C
+
+```{R}
+# Print the validation errors
+validation_errors <- c(error1, error2, error3)
+print(validation_errors)
+```
+
+##### D
+
+```{r}
+# Function to estimate test error including the student variable
+estimate_test_error_with_student <- function(data, seed) {
+  set.seed(seed)
+  
+  # Split data into training and validation sets
+  train_indices <- sample(seq_len(nrow(data)), size = 0.5 * nrow(data))
+  train_set <- data[train_indices, ]
+  validation_set <- data[-train_indices, ]
+  
+  # Fit logistic regression model on training data including student variable
+  logistic_model <- glm(default ~ income + balance + student, data = train_set, family = binomial)
+  
+  # Predict on validation data
+  validation_probs <- predict(logistic_model, validation_set, type = "response")
+  validation_preds <- ifelse(validation_probs > 0.5, "Yes", "No")
+  
+  # Compute validation error
+  validation_error <- mean(validation_preds != validation_set$default)
+  
+  return(validation_error)
+}
+
+# Estimate test error using different seeds
+error1_with_student <- estimate_test_error_with_student(Default, seed = 1)
+error2_with_student <- estimate_test_error_with_student(Default, seed = 2)
+error3_with_student <- estimate_test_error_with_student(Default, seed = 3)
+
+# Print the validation errors including student variable
+print(c(error1_with_student, error2_with_student, error3_with_student))
+
+```
+
+#### Problem 5
+
+```{r}
+# Install necessary packages if not already installed
+if(!require(ISLR)) install.packages("ISLR", dependencies=TRUE)
+
+# Load necessary libraries
+library(ISLR)
+library(MASS)
+
+# Load the Default dataset
+data("Default")
+```
+
+##### a
+
+```{r}
+# Fit the logistic regression model
+logistic_model <- glm(default ~ income + balance, data = Default, family = binomial)
+
+# Summary of the model to get estimated coefficients and standard errors
+summary(logistic_model)
+```
+
+##### b
+
+```{r}
+# Define the boot.fn function
+boot.fn <- function(data, index) {
+  # Fit the logistic regression model on the subset of the data
+  fit <- glm(default ~ income + balance, data = data, family = binomial, subset = index)
+  
+  # Return the coefficients
+  return(coef(fit))
+}
+```
+
+##### C
+
+```{r}
+# Load the boot library
+library(boot)
+
+# Set a random seed for reproducibility
+set.seed(1)
+
+# Use the boot function to estimate standard errors
+boot_results <- boot(data = Default, statistic = boot.fn, R = 1000)
+
+# Print the bootstrap results
+print(boot_results)
+
+```
+
+##### d
+
+```{r}
+# Extract the standard errors from the glm model
+glm_se <- summary(logistic_model)$coefficients[, "Std. Error"]
+
+# Extract the standard errors from the bootstrap results
+boot_se <- apply(boot_results$t, 2, sd)
+
+# Compare the results
+results <- data.frame(
+  Coefficient = names(glm_se),
+  GLM_SE = glm_se,
+  Bootstrap_SE = boot_se
+)
+
+print(results)
+```
+
+#### Problem 8
+
+##### a
+
+```{r}
+set.seed(1)
+x <- rnorm(100)
+y <- x - 2 * x^2 + rnorm(100)
+```
+
+##### b
+
+```{r}
+# Create a scatterplot of X against Y
+plot(x, y, main = "Scatterplot of X against Y", xlab = "X", ylab = "Y", pch = 19)
+```
+
+##### c
+
+```{r}
+library(boot)
+
+# Create the data frame
+data <- data.frame(x = x, y = y)
+
+# Define a function to compute the LOOCV error for a given model formula
+compute_loocv_error <- function(formula, data) {
+  model <- glm(formula, data = data)
+  cv_result <- cv.glm(data, model, K = nrow(data))
+  return(cv_result$delta[1])  # LOOCV error
+}
+
+# Set a random seed
+set.seed(1)
+
+# Compute LOOCV errors for the four models
+loocv_error_1 <- compute_loocv_error(y ~ x, data)
+loocv_error_2 <- compute_loocv_error(y ~ poly(x, 2), data)
+loocv_error_3 <- compute_loocv_error(y ~ poly(x, 3), data)
+loocv_error_4 <- compute_loocv_error(y ~ poly(x, 4), data)
+
+# Print the LOOCV errors
+loocv_errors <- c(loocv_error_1, loocv_error_2, loocv_error_3, loocv_error_4)
+names(loocv_errors) <- c("Model 1", "Model 2", "Model 3", "Model 4")
+print(loocv_errors)
+```
+
+##### d
+
+```{r}
+# Set another random seed
+set.seed(2)
+
+# Compute LOOCV errors for the four models
+loocv_error_1_seed2 <- compute_loocv_error(y ~ x, data)
+loocv_error_2_seed2 <- compute_loocv_error(y ~ poly(x, 2), data)
+loocv_error_3_seed2 <- compute_loocv_error(y ~ poly(x, 3), data)
+loocv_error_4_seed2 <- compute_loocv_error(y ~ poly(x, 4), data)
+
+# Print the LOOCV errors
+loocv_errors_seed2 <- c(loocv_error_1_seed2, loocv_error_2_seed2, loocv_error_3_seed2, loocv_error_4_seed2)
+names(loocv_errors_seed2) <- c("Model 1", "Model 2", "Model 3", "Model 4")
+print(loocv_errors_seed2)
+```
+
+##### e
+
+```{r}
+# Determine the model with the smallest LOOCV error
+best_model <- names(loocv_errors)[which.min(loocv_errors)]
+print(best_model)
+```
+
+##### f
+
+```{r}
+# Fit each model and summarize
+model_1 <- glm(y ~ x, data = data)
+model_2 <- glm(y ~ poly(x, 2), data = data)
+model_3 <- glm(y ~ poly(x, 3), data = data)
+model_4 <- glm(y ~ poly(x, 4), data = data)
+
+summary(model_1)
+summary(model_2)
+summary(model_3)
+summary(model_4)
+
+```
+
+#### Problem 9
+
+##### a
+
+```{r}
+# Load necessary libraries
+library(ISLR2)
+
+# Load the Boston dataset
+data(Boston)
+
+# Estimate the population mean of medv
+mean_medv <- mean(Boston$medv)
+mean_medv
+
+```
+
+##### b
+
+```{r}
+# Estimate the standard error of the mean
+n <- length(Boston$medv)
+sample_sd <- sd(Boston$medv)
+se_mean_medv <- sample_sd / sqrt(n)
+se_mean_medv
+```
+
+##### c
+
+```{r}
+# Load the boot library
+library(boot)
+
+# Define a function for the bootstrap
+bootstrap_mean <- function(data, indices) {
+  return(mean(data[indices]))
+}
+
+# Perform the bootstrap
+set.seed(1)  # For reproducibility
+boot_results <- boot(Boston$medv, bootstrap_mean, R = 1000)
+
+# Bootstrap estimate of standard error
+boot_se_mean <- sd(boot_results$t)
+boot_se_mean
+
+```
+
+##### d
+
+```{r}
+# 95% confidence interval using the bootstrap estimate
+ci_bootstrap <- c(mean_medv - 2 * boot_se_mean, mean_medv + 2 * boot_se_mean)
+ci_bootstrap
+
+# 95% confidence interval using t.test
+ci_ttest <- t.test(Boston$medv)$conf.int
+ci_ttest
+```
+
+##### e
+
+```{r}
+# Estimate the population median of medv
+median_medv <- median(Boston$medv)
+median_medv
+```
+
+##### f
+
+```{r}
+# Define a function to compute the median of medv
+boot_median_fn <- function(data, index) {
+  return(median(data[index]))
+}
+
+# Use the boot function to estimate the standard error
+set.seed(1)
+boot_median_results <- boot(data = Boston$medv, statistic = boot_median_fn, R = 1000)
+boot_median_results
+
+# Extract the bootstrap estimate of the standard error for the median
+boot_se_mu_med <- sd(boot_median_results$t)
+boot_se_mu_med
+```
+
+##### g
+
+```{r}
+# Estimate the tenth percentile of medv
+mu_0.1 <- quantile(Boston$medv, 0.1)
+mu_0.1
+```
+
+##### h
+
+```{r}
+# Define a function to compute the tenth percentile of medv
+boot_percentile_fn <- function(data, index) {
+  return(quantile(data[index], 0.1))
+}
+
+# Use the boot function to estimate the standard error
+set.seed(1)
+boot_percentile_results <- boot(data = Boston$medv, statistic = boot_percentile_fn, R = 1000)
+boot_percentile_results
+
+# Extract the bootstrap estimate of the standard error for the tenth percentile
+boot_se_mu_0.1 <- sd(boot_percentile_results$t)
+boot_se_mu_0.1
+```
