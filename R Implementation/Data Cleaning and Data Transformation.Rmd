@@ -1,0 +1,202 @@
+---
+title: "Divvy Trip Pattern Analysis"
+author: "Usman Matheen"
+date: "2024-07-04"
+output: html_document
+---
+
+# Data Preparation & Cleaning
+# Libraries
+install.packages(c("dplyr", "tidyr", "lubridate", "tidymodels", "ggplot2"))
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(tidymodels)
+library(ggplot2)
+
+# Data set in Quarters
+
+quarters <- list(
+  q1 = c("C:/Users/usman/OneDrive - Illinois Institute of Technology/DPA/Project/Divvy data/202301-divvy-tripdata.csv", "C:/Users/usman/OneDrive - Illinois Institute of Technology/DPA/Project/Divvy data/202302-divvy-tripdata.csv", "C:/Users/usman/OneDrive - Illinois Institute of Technology/DPA/Project/Divvy data/202303-divvy-tripdata.csv"),
+  q2 = c("C:/Users/usman/OneDrive - Illinois Institute of Technology/DPA/Project/Divvy data/202304-divvy-tripdata.csv", "C:/Users/usman/OneDrive - Illinois Institute of Technology/DPA/Project/Divvy data/202305-divvy-tripdata.csv", "C:/Users/usman/OneDrive - Illinois Institute of Technology/DPA/Project/Divvy data/202306-divvy-tripdata.csv"),
+  q3 = c("C:/Users/usman/OneDrive - Illinois Institute of Technology/DPA/Project/Divvy data/202307-divvy-tripdata.csv", "C:/Users/usman/OneDrive - Illinois Institute of Technology/DPA/Project/Divvy data/202308-divvy-tripdata.csv", "C:/Users/usman/OneDrive - Illinois Institute of Technology/DPA/Project/Divvy data/202309-divvy-tripdata.csv"),
+  q4 = c("C:/Users/usman/OneDrive - Illinois Institute of Technology/DPA/Project/Divvy data/202310-divvy-tripdata.csv", "C:/Users/usman/OneDrive - Illinois Institute of Technology/DPA/Project/Divvy data/202311-divvy-tripdata.csv", "C:/Users/usman/OneDrive - Illinois Institute of Technology/DPA/Project/Divvy data/202312-divvy-tripdata.csv")
+)
+# Combining Quarters
+combinequarter <- function(files) {
+  monthly <- lapply(files, function(file) {
+    if (file.exists(file)) {
+      read.csv(file)
+    } else {
+      stop(paste("File not found:", file))
+    }
+  })
+  quarterly <- bind_rows(monthly)
+  return(quarterly)
+}
+
+#combinequarter <- function(files) {
+ # monthly <- lapply(files, read.csv)
+  #quarterly <- bind_rows(monthly)
+  #return(quarterly)
+#}
+Q1 <- combinequarter(quarters$q1)
+Q2 <- combinequarter(quarters$q2)
+Q3 <- combinequarter(quarters$q3)
+Q4 <- combinequarter(quarters$q4)
+
+# Combine Quarters into Annual
+annual <- bind_rows(Q1, Q2, Q3, Q4)
+
+# Removing Unnecessary Columns
+necessary <- c("rideable_type", "started_at", "ended_at", "start_station_name", "end_station_name", "member_casual")
+annual <- annual %>% select(all_of(necessary))
+
+# Removing Missing Values
+cleaned <- annual %>% drop_na()
+dim(annual)
+
+# Convert 'started_at' and 'ended_at' to datetime
+cleaned <- cleaned %>%
+  mutate(
+    started_at = ymd_hms(started_at),
+    ended_at = ymd_hms(ended_at)
+  )
+
+cleaned <- cleaned %>%
+  mutate(
+    start_time = format(started_at, format = "%H:%M:%S"),
+    end_time = format(ended_at, format = "%H:%M:%S")
+  )
+
+# Create new features: trip duration, day of the week, hour of the day
+cleaned <- cleaned %>%
+  mutate(
+    trip_duration = as.numeric(difftime(ended_at, started_at, units = "mins")),
+    day_of_week = wday(started_at, label = TRUE),
+    start_hour = hour(started_at)
+  )
+
+# Remove negative or zero trip durations
+cleaned <- cleaned %>%
+  filter(trip_duration > 0)
+
+# Handle outliers in trip duration (e.g., removing trips longer than 24 hours)
+cleaned <- cleaned %>%
+  filter(trip_duration <= 1440)
+
+# Check for consistency: 'ended_at' should be after 'started_at'
+cleaned <- cleaned %>%
+  filter(ended_at > started_at)
+dim(cleaned)
+
+
+# Verify the cleaned data
+dim(cleaned)
+summary(cleaned)
+
+# Save the cleaned data for further analysis
+write.csv(cleaned, "C:/Users/usman/OneDrive - Illinois Institute of Technology/DPA/Project/Divvy data/cleaned_data.csv", row.names = FALSE)
+
+
+# Data Transformation
+
+library(dplyr)
+library(lubridate)
+library(hms)
+library(ggplot2)
+
+# Load cleaned data
+cleaned <- read.csv("C:/Users/usman/OneDrive - Illinois Institute of Technology/DPA/Project/Divvy data/cleaned_data.csv")
+
+# Convert 'started_at' and 'ended_at' to datetime
+cleaned <- cleaned %>%
+  mutate(
+    started_at = ymd_hms(started_at, quiet = TRUE),
+    ended_at = ymd_hms(ended_at, quiet = TRUE)
+  )
+
+# Additional Data Transformations
+cleaned <- cleaned %>%
+  # Create new feature for season
+  mutate(
+    season = case_when(
+      month(started_at) %in% c(3, 4, 5) ~ "Spring",
+      month(started_at) %in% c(6, 7, 8) ~ "Summer",
+      month(started_at) %in% c(9, 10, 11) ~ "Fall",
+      TRUE ~ "Winter"
+    ),
+    # Bin trip duration
+    trip_duration_bin = case_when(
+      trip_duration < 30 ~ "Short",
+      trip_duration >= 30 & trip_duration < 60 ~ "Medium",
+      trip_duration >= 60 ~ "Long"
+    ),
+    # Bin start_hour into time of day categories
+    time_of_day = case_when(
+      start_hour >= 5 & start_hour < 12 ~ "Morning",
+      start_hour >= 12 & start_hour < 17 ~ "Afternoon",
+      start_hour >= 17 & start_hour < 21 ~ "Evening",
+      TRUE ~ "Night"
+    ),
+    # Bin day_of_week into weekday vs. weekend
+    weekday_weekend = ifelse(wday(started_at) %in% 2:6, "Weekday", "Weekend")
+  )
+
+dim(cleaned)
+names(cleaned)
+
+# Plot for busy hours of the day
+ggplot(cleaned, aes(x = factor(start_hour))) +
+  geom_bar(fill = "steelblue") +
+  labs(
+    title = "Trips by Hour of the Day",
+    x = "Hour of the Day",
+    y = "Number of Trips"
+  ) +
+  theme_minimal()
+
+# Plot for busy days of the week
+ggplot(cleaned, aes(x = day_of_week)) +
+  geom_bar(fill = "steelblue") +
+  labs(
+    title = "Trips by Day of the Week",
+    x = "Day of the Week",
+    y = "Number of Trips"
+  ) +
+  theme_minimal()
+
+
+
+# 1. Number of Trips by Season
+ggplot(cleaned, aes(x = season)) +
+  geom_bar(fill = "steelblue") +
+  labs(
+    title = "Number of Trips by Season",
+    x = "Season",
+    y = "Number of Trips"
+  ) +
+  theme_minimal()
+
+# 2. Number of Trips by Time of Day
+ggplot(cleaned, aes(x = time_of_day)) +
+  geom_bar(fill = "steelblue") +
+  labs(
+    title = "Number of Trips by Time of Day",
+    x = "Time of Day",
+    y = "Number of Trips"
+  ) +
+  theme_minimal()
+
+# 3. Number of Trips by Weekday vs Weekend
+ggplot(cleaned, aes(x = weekday_weekend)) +
+  geom_bar(fill = "steelblue") +
+  labs(
+    title = "Number of Trips by Weekday vs. Weekend",
+    x = "Day Type",
+    y = "Number of Trips"
+  ) +
+  theme_minimal()
+
+
+
