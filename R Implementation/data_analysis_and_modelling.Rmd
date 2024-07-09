@@ -1,0 +1,11 @@
+---
+title: "Analyzing Divvy Bike Usage Patterns in Chicago"
+author: "Mohammad Hamza Piracha, Poshan Pandey, Usman Matheen"
+date: "2024-07-04"
+output: html_document
+---
+
+# Data Analysis and Modeling
+## Clustering
+
+
