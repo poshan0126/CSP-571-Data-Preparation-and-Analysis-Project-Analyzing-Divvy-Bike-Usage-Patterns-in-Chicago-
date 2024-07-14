@@ -29,7 +29,10 @@ The following steps were performed to clean the data:
 
 - **Member vs Casual Riders**: Analyzed ride types for each month, seasons, and time of day.
 - **Station Analysis**: Plotted the distribution of starting and ending stations.
+## Clustering
 
+- **Member vs Casual Riders**: Analyzed ride types for each month, seasons, and time of day.
+- **Station Analysis**: Plotted the distribution of starting and ending stations.
 
 ## Requirements
 
