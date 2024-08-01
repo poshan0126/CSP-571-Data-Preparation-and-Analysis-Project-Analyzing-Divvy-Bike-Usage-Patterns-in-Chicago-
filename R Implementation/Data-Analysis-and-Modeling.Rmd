@@ -13,18 +13,6 @@ output: html_document
 library(googledrive)
 library(dplyr)
 
-# Authenticate and specify scope
-drive_auth(scopes = "https://www.googleapis.com/auth/drive.readonly")
-
-# Your Google Drive file URL
-file_url <- "https://drive.google.com/file/d/1ENtG3huMNMBMekluWXfYlAGHWXSkQiLC/view?usp=sharing"
-
-# Get the file ID from the URL
-file_id <- drive_get(as_id(file_url))
-
-# Download the file to a temporary location
-drive_download(as_id(file_id), path = "transformed_data.csv", overwrite = TRUE)
-
 # Load the transformed data
 transformed_data <- read.csv("transformed_data.csv")
 
@@ -73,7 +61,6 @@ numeric_columns <- transformed_data %>%
 ggpairs(numeric_columns) +
   labs(title = "Scatterplot Matrix for Time Duration") +
   theme_minimal()
-
 ```
 
 
@@ -261,7 +248,8 @@ ggplot(sampled_data, aes(x = start_hour, y = trip_duration, color = as.factor(cl
     color = "Cluster"
   ) +
   theme_minimal()
-
+```
+```{r}
 # Visualize clusters by day of the week
 ggplot(sampled_data, aes(x = as.numeric(day_of_week), y = trip_duration, color = as.factor(cluster))) +
   geom_point(alpha = 0.6) +
@@ -283,7 +271,8 @@ ggplot(sampled_data, aes(x = season, y = trip_duration, color = as.factor(cluste
     color = "Cluster"
   ) +
   theme_minimal()
-
+```
+```{r}
 # Visualize clusters by time of day
 ggplot(sampled_data, aes(x = time_of_day, y = trip_duration, color = as.factor(cluster))) +
   geom_point(alpha = 0.6) +
@@ -296,6 +285,7 @@ ggplot(sampled_data, aes(x = time_of_day, y = trip_duration, color = as.factor(c
   theme_minimal()
 ```
 
+```{r}
 # Libraries for PCA and visualization
 library(Rtsne)
 library(ggplot2)
@@ -400,3 +390,208 @@ ggplot(tsne_coords, aes(x = V1, y = V2)) +
     y = "t-SNE 2"
   ) +
   theme_minimal()
+  # Feature Selection
+```
+  
+```{r}
+# Load necessary libraries
+library(caret)
+library(randomForest)
+library(data.table)
+
+# Convert to data.table for efficiency
+transformed_data <- as.data.table(transformed_data)
+
+# Correlation Analysis
+cor_matrix <- cor(transformed_data %>% select_if(is.numeric), use = "complete.obs")
+highly_correlated <- findCorrelation(cor_matrix, cutoff = 0.75)
+correlated_features <- colnames(transformed_data)[highly_correlated]
+
+# Remove highly correlated features
+selected_features <- transformed_data %>% select(-one_of(correlated_features))
+
+# Sample a subset for RFE to reduce memory usage
+set.seed(123)
+sample_size <- 10000  # Adjust sample size as necessary
+sampled_data <- selected_features[sample(.N, sample_size), ]
+
+# Ensure the response variable is included in the sampled data
+sampled_data$trip_duration <- transformed_data[sample(.N, sample_size), trip_duration]
+
+# Recursive Feature Elimination (RFE)
+control <- rfeControl(functions = rfFuncs, method = "cv", number = 10)
+rfe_result <- rfe(sampled_data %>% select(-trip_duration), 
+                  sampled_data$trip_duration, 
+                  sizes = c(1:10), 
+                  rfeControl = control)
+
+# Selected Features
+rfe_selected_features <- predictors(rfe_result)
+selected_data <- transformed_data %>% select(all_of(rfe_selected_features), trip_duration)
+
+# Save selected features
+write.csv(selected_data, "selected_data.csv", row.names = FALSE)
+```
+
+# Model Selection and Training
+```{r}
+# Ensure data.table is being used
+selected_data <- as.data.table(selected_data)
+
+# Convert date columns to numeric to avoid factor level issues
+selected_data[, `:=`(
+  start_date = as.numeric(as.POSIXct(start_date, origin = "1970-01-01")),
+  end_date = as.numeric(as.POSIXct(end_date, origin = "1970-01-01"))
+)]
+
+# Convert character columns to factors
+selected_data[, `:=`(
+  start_month = factor(start_month),
+  rideable_type = factor(rideable_type),
+  end_month = factor(end_month),
+  season = factor(season),
+  member_casual = factor(member_casual),
+  start_station_name = factor(start_station_name),
+  time_of_day = factor(time_of_day)
+)]
+
+# Sample a smaller subset for training
+set.seed(123)
+train_sample_size <- 500  # Reduce sample size for faster computation
+train_sampled_data <- selected_data[sample(1:nrow(selected_data), train_sample_size, replace = FALSE), ]
+
+# Split the data into training and test sets
+set.seed(123)
+train_index <- createDataPartition(train_sampled_data$trip_duration, p = 0.8, list = FALSE)
+train_data <- train_sampled_data[train_index, ]
+test_data <- train_sampled_data[-train_index, ]
+
+# Ensure consistent levels for categorical variables between train and test datasets
+for (col in c("start_month", "rideable_type", "end_month", "season", "member_casual", "start_station_name", "time_of_day")) {
+  test_data[[col]] <- factor(test_data[[col]], levels = levels(train_data[[col]]))
+}
+```
+
+```{r}
+# Train Control
+train_control <- trainControl(method = "cv", number = 5)
+
+# Random Forest
+set.seed(123)
+rf_model <- train(trip_duration ~ ., data = train_data, method = "rf", trControl = train_control, tuneLength = 3)
+
+# Predict on the test set
+rf_predictions <- predict(rf_model, test_data)
+
+# Bin the trip_duration into categories (e.g., low, medium, high) for classification
+# Define binning thresholds or use quantiles
+breaks <- quantile(selected_data$trip_duration, probs = c(0, 0.33, 0.66, 1), na.rm = TRUE)
+train_data$trip_duration_binned <- cut(train_data$trip_duration, breaks = breaks, labels = c("low", "medium", "high"), include.lowest = TRUE)
+test_data$trip_duration_binned <- cut(test_data$trip_duration, breaks = breaks, labels = c("low", "medium", "high"), include.lowest = TRUE)
+
+# Train Random Forest model on binned categories
+rf_model_binned <- train(trip_duration_binned ~ ., data = train_data, method = "rf", trControl = train_control, tuneLength = 3)
+
+# Predict on binned categories
+rf_predictions_binned <- predict(rf_model_binned, test_data)
+
+# Calculate accuracy
+rf_accuracy <- sum(rf_predictions_binned == test_data$trip_duration_binned) / nrow(test_data)
+cat("Random Forest Accuracy:", rf_accuracy, "\n")
+```
+
+```{r}
+# Create a confusion matrix
+conf_matrix <- confusionMatrix(rf_predictions_binned, test_data$trip_duration_binned)
+print(conf_matrix)
+
+# Plot confusion matrix
+conf_matrix_plot <- as.data.frame(table(Predicted = rf_predictions_binned, Actual = test_data$trip_duration_binned))
+ggplot(conf_matrix_plot, aes(x = Actual, y = Predicted, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), color = "black") +
+  scale_fill_gradient(low = "white", high = "blue") +
+  labs(title = "Confusion Matrix for Random Forest", x = "Actual", y = "Predicted") +
+  theme_minimal()
+```
+
+```{r}
+# Train Control
+train_control <- trainControl(method = "cv", number = 5)
+
+# XGBoost
+set.seed(123)
+xgb_model <- train(trip_duration_binned ~ ., data = train_data, method = "xgbTree", trControl = train_control, tuneLength = 5)
+
+# Predict on the test set
+xgb_predictions <- predict(xgb_model, test_data)
+
+# Calculate RMSE and R-squared
+xgb_rmse <- RMSE(as.numeric(xgb_predictions), as.numeric(test_data$trip_duration_binned))
+xgb_r2 <- R2(as.numeric(xgb_predictions), as.numeric(test_data$trip_duration_binned))
+
+# Print XGBoost performance
+cat("XGBoost RMSE:", xgb_rmse, "R-squared:", xgb_r2, "\n")
+
+# Calculate accuracy
+xgb_accuracy <- sum(xgb_predictions == test_data$trip_duration_binned) / nrow(test_data)
+cat("XGBoost Accuracy:", xgb_accuracy, "\n")9633
+```
+
+```{r}
+# Create a data frame to store model performance
+model_performance <- data.frame(
+  Model = c("Random Forest", "XGBoost"),
+  RMSE = c(rf_rmse, xgb_rmse),
+  R2 = c(rf_r2, xgb_r2)
+)
+
+# Plot RMSE for each model
+ggplot(model_performance, aes(x = Model, y = RMSE, fill = Model)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Model RMSE Comparison", x = "Model", y = "RMSE") +
+  theme_minimal()
+
+# Plot R-squared for each model
+ggplot(model_performance, aes(x = Model, y = R2, fill = Model)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Model R-squared Comparison", x = "Model", y = "R-squared") +
+  theme_minimal()
+```
+
+```{r}
+# Create a confusion matrix
+xgb_conf_matrix <- confusionMatrix(xgb_predictions, test_data$trip_duration_binned)
+print(xgb_conf_matrix)
+
+# Plot confusion matrix
+xgb_conf_matrix_plot <- as.data.frame(table(Predicted = xgb_predictions, Actual = test_data$trip_duration_binned))
+ggplot(xgb_conf_matrix_plot, aes(x = Actual, y = Predicted, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), color = "black") +
+  scale_fill_gradient(low = "white", high = "blue") +
+  labs(title = "Confusion Matrix for XGBoost", x = "Actual", y = "Predicted") +
+  theme_minimal()
+```
+
+```{r}
+# Compare Model Performance
+model_comparison <- data.frame(
+  Model = c("Random Forest", "XGBoost"),
+  RMSE = c(rf_rmse, xgb_rmse),
+  R2 = c(rf_r2, xgb_r2),
+  Accuracy = c(rf_accuracy, xgb_accuracy)
+)
+
+# Print model comparison
+print(model_comparison)
+
+# Plot Model Performance
+ggplot(model_comparison, aes(x = Model)) +
+  geom_bar(aes(y = RMSE, fill = "RMSE"), stat = "identity", position = "dodge") +
+  geom_bar(aes(y = R2 * 100, fill = "R-squared"), stat = "identity", position = "dodge") +
+  geom_bar(aes(y = Accuracy * 100, fill = "Accuracy"), stat = "identity", position = "dodge") +
+  labs(title = "Model Performance Comparison", y = "Metrics (%)") +
+  scale_fill_manual(name = "Metrics", values = c("RMSE" = "steelblue", "R-squared" = "darkgreen", "Accuracy" = "purple")) +
+  theme_minimal()
+```
